@@ -4,15 +4,16 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: market_insights_api
+    env_file:
+      - .env
     environment:
-      # Connect to existing PostgreSQL database on host
-      # Using localhost since we're in host network mode
-      DATABASE_URL: postgresql://postgres:root@localhost:5432/fast_api_marketinsights
-      PYTHONPATH: /app/market-insight
+      # Environment variables can be overridden here if needed
+      # They are loaded from .env file by default
+      PYTHONPATH: ${PYTHONPATH:-/app/market-insight}
     volumes:
       - ./market-insight:/app/market-insight
       - ./output_data:/app/output_data
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn main:app --host ${API_HOST:-0.0.0.0} --port ${API_PORT:-8000} --reload
     network_mode: host
     restart: unless-stopped
 

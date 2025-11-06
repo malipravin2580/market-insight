@@ -10,11 +10,22 @@ from datetime import datetime, timedelta, date
 import csv
 import os
 from typing import Optional
+from dotenv import load_dotenv
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fetch_enam_data import fetch_and_store
 from bind_enam_details import bind_apmc_details
 from export_missing_apmc_details import export_missing_apmc_details
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Get configuration from environment variables
+ENAM_API_URL = os.getenv("ENAM_API_URL", "https://enam.gov.in/web/Ajax_ctrl/trade_data_list")
+ENAM_COOKIE = os.getenv("ENAM_COOKIE", "SERVERID=node1; ci_session=kc3ngjdgdk10n2a28pbptdc8ir500qb7")
+SCHEDULER_HOUR = int(os.getenv("SCHEDULER_HOUR", "0"))
+SCHEDULER_MINUTE = int(os.getenv("SCHEDULER_MINUTE", "45"))
+WORK_DIR = os.getenv("WORK_DIR", "/opt/enaam_data_collection")
 
 # Assuming models are defined in a separate file (models.py)
 from models import Base, ApmcDetail, EnaamRecord
@@ -67,14 +78,12 @@ def run_daily_pipeline():
 
 @app.on_event("startup")
 def start_scheduler():
-    # Schedule daily pipeline at 00:45 (12:45 AM)
+    # Schedule daily pipeline using environment variables
     scheduler.add_job(
         func=run_daily_pipeline,
         trigger="cron",
-        # trigger="interval",
-        hour=0,
-        minute=45,
-        # minutes=1,
+        hour=SCHEDULER_HOUR,
+        minute=SCHEDULER_MINUTE,
         id="daily_enam_pipeline",
         replace_existing=True,
     )
@@ -132,7 +141,7 @@ def enaam_data(from_date: Optional[date] = None, to_date: Optional[date] = None)
     session.close()
     
     # If no data exists, proceed with fetching from eNAM API
-    url = "https://enam.gov.in/web/Ajax_ctrl/trade_data_list"
+    url = ENAM_API_URL
     payload = {
         "language": "en",
         "stateName": "-- All --",
@@ -142,7 +151,7 @@ def enaam_data(from_date: Optional[date] = None, to_date: Optional[date] = None)
         "toDate": str_to,
     }
     headers = {
-        "Cookie": "SERVERID=node1; ci_session=kc3ngjdgdk10n2a28pbptdc8ir500qb7"
+        "Cookie": ENAM_COOKIE
     }
     try:
         resp = requests.post(url, headers=headers, data=payload, timeout=30)
@@ -255,7 +264,7 @@ def enaam_data(from_date: Optional[date] = None, to_date: Optional[date] = None)
 async def check_missing_apmcs(output: APMCOutput):
     # Handle path issues by changing to the correct directory
     try:
-        os.chdir('/opt/enaam_data_collection')
+        os.chdir(WORK_DIR)
     except:
         pass
 

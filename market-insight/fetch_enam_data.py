@@ -8,8 +8,17 @@ import requests
 import json
 from datetime import datetime, timedelta
 from sqlalchemy.exc import IntegrityError
+import os
+from dotenv import load_dotenv
 from database import SessionLocal     # re-uses your SessionLocal from database.py
 from models import ApmcDetail, EnaamRecord
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Get configuration from environment variables
+ENAM_API_URL = os.getenv("ENAM_API_URL", "https://enam.gov.in/web/Ajax_ctrl/trade_data_list")
+ENAM_COOKIE = os.getenv("ENAM_COOKIE", "SERVERID=node1; ci_session=kc3ngjdgdk10n2a28pbptdc8ir500qb7")
 
 def fetch_and_store():
     # Determine yesterday’s date
@@ -18,7 +27,7 @@ def fetch_and_store():
     str_yesterday = yesterday.isoformat()
 
     # Prepare the POST
-    url = "https://enam.gov.in/web/Ajax_ctrl/trade_data_list"
+    url = ENAM_API_URL
     payload = {
         "language": "en",
         "stateName": "-- All --",
@@ -28,7 +37,7 @@ def fetch_and_store():
         "toDate":   str_yesterday,
     }
     headers = {
-        "Cookie": "SERVERID=node1; ci_session=kc3ngjdgdk10n2a28pbptdc8ir500qb7"
+        "Cookie": ENAM_COOKIE
     }
 
     try:
