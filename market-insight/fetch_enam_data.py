@@ -31,9 +31,21 @@ def fetch_and_store():
         "Cookie": "SERVERID=node1; ci_session=kc3ngjdgdk10n2a28pbptdc8ir500qb7"
     }
 
-    resp = requests.post(url, headers=headers, data=payload)
-    resp.raise_for_status()
-    data_list = resp.json().get("data", [])
+    try:
+        resp = requests.post(url, headers=headers, data=payload, timeout=30)
+        resp.raise_for_status()
+        data_list = resp.json().get("data", [])
+    except requests.exceptions.Timeout:
+        print(f"❌ Connection timeout: Unable to reach eNAM API (enam.gov.in)")
+        print("   Please check your internet connection or try again later.")
+        raise
+    except requests.exceptions.ConnectionError as e:
+        print(f"❌ Connection error: Unable to connect to eNAM API")
+        print(f"   Error: {str(e)}")
+        raise
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error fetching data from eNAM API: {str(e)}")
+        raise
 
     session = SessionLocal()
     duplication_flag = False

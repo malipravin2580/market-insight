@@ -22,7 +22,11 @@ from models import Base, ApmcDetail, EnaamRecord
 # Tables are initialized in `database.py`
 
 # FastAPI app
-app = FastAPI()
+app = FastAPI(
+     title="Market Insights API",
+    description="Market Insights API for fetching and storing eNAM data",
+    version="1.0.0"
+)   
 scheduler = BackgroundScheduler()
 
 def run_daily_pipeline():
@@ -94,7 +98,40 @@ def enaam_data(from_date: Optional[date] = None, to_date: Optional[date] = None)
     str_from = fdate.isoformat()
     str_to = tdate.isoformat()
 
-    # Fetch from eNAM
+    # First, check if data already exists for this date range
+    session = SessionLocal()
+    try:
+        # Check if any records exist for this date range
+        existing_records = session.query(EnaamRecord).filter(
+            EnaamRecord.date >= fdate,
+            EnaamRecord.date <= tdate
+        ).count()
+        
+        if existing_records > 0:
+            # Get more details about existing data
+            distinct_dates = session.query(EnaamRecord.date).filter(
+                EnaamRecord.date >= fdate,
+                EnaamRecord.date <= tdate
+            ).distinct().all()
+            date_list = [d[0].isoformat() for d in distinct_dates if d[0]]
+            
+            session.close()
+            return {
+                "detail": f"Data for date range {str_from} to {str_to} already exists in the database.",
+                "existing_records": existing_records,
+                "dates_with_data": sorted(date_list),
+                "message": f"✅ Found {existing_records} existing records. Skipping fetch to avoid duplicates."
+            }
+    except Exception as e:
+        session.close()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error checking existing data: {str(e)}"
+        )
+    
+    session.close()
+    
+    # If no data exists, proceed with fetching from eNAM API
     url = "https://enam.gov.in/web/Ajax_ctrl/trade_data_list"
     payload = {
         "language": "en",
@@ -107,12 +144,39 @@ def enaam_data(from_date: Optional[date] = None, to_date: Optional[date] = None)
     headers = {
         "Cookie": "SERVERID=node1; ci_session=kc3ngjdgdk10n2a28pbptdc8ir500qb7"
     }
-    resp = requests.post(url, headers=headers, data=payload)
-    data_list = resp.json().get("data", [])
+    try:
+        resp = requests.post(url, headers=headers, data=payload, timeout=30)
+        resp.raise_for_status()
+        response_data = resp.json()
+        data_list = response_data.get("data", [])
+        
+        # Check if we got any data
+        if not data_list:
+            return {
+                "detail": f"No data found from eNAM API for {str_from} to {str_to}. The API returned an empty data list.",
+                "response": response_data
+            }
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail=f"Connection timeout: Unable to reach eNAM API (enam.gov.in). Please check your internet connection or try again later."
+        )
+    except requests.exceptions.ConnectionError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Connection error: Unable to connect to eNAM API. Error: {str(e)}"
+        )
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching data from eNAM API: {str(e)}"
+        )
 
     session = SessionLocal()
     duplication_flag = False
     date_val = None
+    records_added = 0
+    records_skipped = 0
 
     # Build map of existing APMC details
     apmc_details = session.query(ApmcDetail).all()
@@ -161,16 +225,31 @@ def enaam_data(from_date: Optional[date] = None, to_date: Optional[date] = None)
         # Commit or rollback on duplicate
         try:
             session.commit()
+            records_added += 1
         except IntegrityError:
             session.rollback()
             duplication_flag = True
+            records_skipped += 1
 
     session.close()
 
-    # Return JSON status
-    if duplication_flag:
-        return {"detail": f"Data for {str_from} to {str_to} already exists in the database."}
-    return {"detail": f"Data for {str_from} to {str_to} imported successfully in the database."}
+    # Return JSON status with detailed information
+    if records_added == 0 and records_skipped > 0:
+        return {
+            "detail": f"All records for {str_from} to {str_to} already exist in the database. Skipped {records_skipped} duplicate records."
+        }
+    elif records_added > 0 and records_skipped > 0:
+        return {
+            "detail": f"Imported {records_added} new records for {str_from} to {str_to}. Skipped {records_skipped} duplicate records."
+        }
+    elif records_added > 0:
+        return {
+            "detail": f"Successfully imported {records_added} records for {str_from} to {str_to}."
+        }
+    else:
+        return {
+            "detail": f"No data found for {str_from} to {str_to}."
+        }
 
 @app.post("/check-missing-apmcs", response_class=FileResponse)
 async def check_missing_apmcs(output: APMCOutput):

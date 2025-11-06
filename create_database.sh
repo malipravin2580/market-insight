@@ -6,7 +6,7 @@ DB_NAME="fast_api_marketinsights"
 DB_USER="postgres"
 DB_PASSWORD="root"
 DB_HOST="localhost"
-DB_PORT="5432"
+DB_PORT="5433"
 
 echo "Creating PostgreSQL database: $DB_NAME"
 
